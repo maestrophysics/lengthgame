@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>정확한 길이 맞추기 대결</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;700;900&display=swap');
+        body { font-family: 'Pretendard', sans-serif; overflow-x: hidden; }
+        input[type="range"] { cursor: pointer; }
+        .animate-pulse-slow { animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        // 아이콘 렌더링용 컴포넌트
+        const LucideIcon = ({ name, size = 24, className = "" }) => {
+            const iconRef = useRef(null);
+            useEffect(() => {
+                if (window.lucide) {
+                    window.lucide.createIcons();
+                }
+            });
+            return <i data-lucide={name} className={className} style={{ width: size, height: size }}></i>;
+        };
+
+        const App = () => {
+            // --- [상태 정의: 원본 코드 그대로] ---
+            const [gameState, setGameState] = useState('calibrate');
+            const CREDIT_CARD_WIDTH_CM = 8.56;
+            const [cardWidthPx, setCardWidthPx] = useState(300); 
+            const [pixelsPerCm, setPixelsPerCm] = useState(0);
+            const containerRef = useRef(null);
+            const [containerWidth, setContainerWidth] = useState(0);
+            const [minProblemLength, setMinProblemLength] = useState(3);
+            const [maxProblemLength, setMaxProblemLength] = useState(15);
+            const MAX_ROUNDS = 5;
+            const [currentRound, setCurrentRound] = useState(1);
+            const [targetLengthCm, setTargetLengthCm] = useState(0);
+            const [studentGuess, setStudentGuess] = useState('');
+            const [teacherGuess, setTeacherGuess] = useState('');
+            const [roundResult, setRoundResult] = useState(null);
+            const [gameHistory, setGameHistory] = useState([]);
+
+            // [로직 1: 화면 너비 한계 계산]
+            const maxPossibleCmOnScreen = pixelsPerCm > 0 ? Math.floor((containerWidth - 40) / pixelsPerCm) : 100;
+
+            useEffect(() => {
+                const updateWidth = () => {
+                    if (containerRef.current) setContainerWidth(containerRef.current.offsetWidth);
+                };
+                updateWidth();
+                window.addEventListener('resize', updateWidth);
+                return () => window.removeEventListener('resize', updateWidth);
+            }, [gameState]);
+
+            useEffect(() => {
+                setPixelsPerCm(cardWidthPx / CREDIT_CARD_WIDTH_CM);
+            }, [cardWidthPx]);
+
+            // [로직 2: 문제 생성 및 범위 제한]
+            const generateNewTarget = () => {
+                const min = Math.min(minProblemLength, maxProblemLength);
+                const safeMax = Math.min(maxProblemLength, maxPossibleCmOnScreen);
+                const max = Math.max(min, safeMax);
+                const length = (Math.random() * (max - min) + min).toFixed(1);
+                setTargetLengthCm(parseFloat(length));
+                setStudentGuess('');
+                setTeacherGuess('');
+                setRoundResult(null);
+                setGameState('play');
+            };
+
+            const startNewGame = () => {
+                setCurrentRound(1);
+                setGameHistory([]);
+                generateNewTarget();
+            };
+
+            const checkRoundGuess = () => {
+                const sGuess = parseFloat(studentGuess);
+                const tGuess = parseFloat(teacherGuess);
+                if (isNaN(sGuess) || isNaN(tGuess)) return;
+                const sDiff = Math.abs(sGuess - targetLengthCm);
+                const tDiff = Math.abs(tGuess - targetLengthCm);
+                const result = {
+                    round: currentRound,
+                    actual: targetLengthCm,
+                    student: { guess: sGuess, diff: sDiff },
+                    teacher: { guess: tGuess, diff: tDiff }
+                };
+                setRoundResult(result);
+                setGameHistory([...gameHistory, result]);
+                setGameState('round_result');
+            };
+
+            const nextAction = () => {
+                if (currentRound < MAX_ROUNDS) {
+                    setCurrentRound(prev => prev + 1);
+                    generateNewTarget();
+                } else {
+                    setGameState('final_result');
+                }
+            };
+
+            const totals = gameHistory.reduce((acc, curr) => ({
+                student: acc.student + curr.student.diff,
+                teacher: acc.teacher + curr.teacher.diff
+            }), { student: 0, teacher: 0 });
+
+            return (
+                <div className="min-h-screen bg-slate-50 flex flex-col items-center py-8 px-4 font-sans text-slate-800 transition-all">
+                    <div className="max-w-[95vw] lg:max-w-6xl w-full bg-white rounded-3xl shadow-xl overflow-hidden border border-slate-200">
+                        
+                        {/* 헤더 부분 */}
+                        <div className="bg-indigo-600 p-6 text-white">
+                            <div className="flex justify-between items-center mb-2">
+                                <h1 className="text-2xl font-bold flex items-center gap-2">
+                                    <LucideIcon name="ruler" /> 정확한 길이 맞추기 대결
+                                </h1>
+                                {gameState !== 'calibrate' && (
+                                    <div className="bg-indigo-500 px-3 py-1 rounded-full text-sm font-bold flex items-center gap-2">
+                                        <span>{currentRound} / {MAX_ROUNDS}</span>
+                                    </div>
+                                )}
+                            </div>
+                            {gameState !== 'calibrate' && (
+                                <div className="w-full bg-indigo-800 h-2 rounded-full overflow-hidden">
+                                    <div className="bg-yellow-400 h-full transition-all duration-500" style={{ width: `${(currentRound / MAX_ROUNDS) * 100}%` }}></div>
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="p-4 sm:p-8" ref={containerRef}>
+                            
+                            {/* 1단계: 보정 및 설정 (경고 문구 포함) */}
+                            {gameState === 'calibrate' && (
+                                <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in duration-500">
+                                    <div className="text-center space-y-2">
+                                        <h2 className="text-xl font-semibold text-slate-700">1단계: 화면 보정 및 설정</h2>
+                                        <p className="text-slate-500">실제 카드 크기와 화면의 사각형을 정확히 겹쳐주세요.</p>
+                                    </div>
+
+                                    <div className="flex flex-col items-center space-y-8">
+                                        <div className="bg-gradient-to-br from-slate-700 to-slate-900 rounded-xl shadow-2xl flex flex-col justify-between p-4 text-white border-2 border-slate-400"
+                                            style={{ width: `${cardWidthPx}px`, height: `${cardWidthPx * 0.628}px` }}>
+                                            <div className="flex justify-between items-start">
+                                                <div className="w-10 h-8 bg-yellow-400/80 rounded-md"></div>
+                                                <LucideIcon name="credit-card" className="opacity-50" />
+                                            </div>
+                                            <div className="text-[10px] tracking-widest opacity-40 uppercase font-bold text-center">Physical Scale Reference</div>
+                                        </div>
+
+                                        <div className="w-full max-w-lg space-y-8">
+                                            <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200 space-y-4">
+                                                <div className="flex items-center justify-between gap-4">
+                                                    <div className="flex-1 space-y-2">
+                                                        <label className="text-sm font-bold text-slate-600">가로 너비 조절 (px)</label>
+                                                        <input type="range" min="50" max="1000" value={cardWidthPx} onChange={(e) => setCardWidthPx(parseInt(e.target.value))} className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600" />
+                                                    </div>
+                                                    <div className="w-24 space-y-1">
+                                                        <label className="text-[10px] font-bold text-slate-400">직접 입력</label>
+                                                        <input type="number" value={cardWidthPx} onChange={(e) => setCardWidthPx(Math.max(1, parseInt(e.target.value) || 0))} className="w-full text-center font-bold py-2 border-2 border-indigo-100 rounded-lg outline-none" />
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {/* [원본의 핵심: 문제 범위 설정 및 경고] */}
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-white p-6 rounded-2xl border border-slate-100 shadow-sm relative">
+                                                <div className="col-span-full flex items-center justify-between border-b pb-2">
+                                                    <div className="flex items-center gap-2 text-slate-700 font-bold">
+                                                        <LucideIcon name="settings-2" size={16} className="text-indigo-500" /> 문제 출제 범위 설정
+                                                    </div>
+                                                    <div className="flex items-center gap-1 px-2 py-1 bg-amber-50 rounded text-[10px] font-bold text-amber-700">
+                                                        <LucideIcon name="alert-circle" size={12} /> 현재 화면 한계: {maxPossibleCmOnScreen}cm
+                                                    </div>
+                                                </div>
+
+                                                <div className="space-y-3">
+                                                    <div className="flex justify-between items-center text-xs font-bold text-slate-500">최소 길이 <span className="text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded">{minProblemLength} cm</span></div>
+                                                    <input type="range" min="1" max="50" value={minProblemLength} onChange={(e) => {
+                                                        const val = parseInt(e.target.value);
+                                                        setMinProblemLength(val);
+                                                        if (val > maxProblemLength) setMaxProblemLength(val);
+                                                    }} className="w-full h-2 bg-slate-100 rounded-lg appearance-none accent-indigo-400" />
+                                                </div>
+                                                
+                                                <div className="space-y-3">
+                                                    <div className="flex justify-between items-center text-xs font-bold text-slate-500">최대 길이 <span className="text-pink-600 bg-pink-50 px-2 py-0.5 rounded">{maxProblemLength} cm</span></div>
+                                                    <input type="range" min="1" max="100" value={maxProblemLength} onChange={(e) => {
+                                                        const val = parseInt(e.target.value);
+                                                        setMaxProblemLength(val);
+                                                        if (val < minProblemLength) setMinProblemLength(val);
+                                                    }} className="w-full h-2 bg-slate-100 rounded-lg appearance-none accent-pink-400" />
+                                                    
+                                                    {/* [경고 문구 작동!] */}
+                                                    {maxProblemLength > maxPossibleCmOnScreen && (
+                                                        <p className="text-[10px] text-pink-500 font-bold animate-pulse-slow mt-1">
+                                                            * 주의: 현재 보정값으로 {maxPossibleCmOnScreen}cm를 초과하면 자동으로 제한됩니다.
+                                                        </p>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <button onClick={() => { setPixelsPerCm(cardWidthPx / CREDIT_CARD_WIDTH_CM); startNewGame(); }} className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-lg active:scale-[0.98] transition-all">설정 완료 및 5라운드 대결 시작</button>
+                                </div>
+                            )}
+
+                            {/* 2단계: 플레이 (가로 스크롤 방지 로직 적용) */}
+                            {gameState === 'play' && (
+                                <div className="space-y-8 animate-in fade-in duration-500">
+                                    <div className="text-center">
+                                        <h2 className="text-xl font-bold text-slate-700">이 선의 길이는 몇 cm일까요?</h2>
+                                        <p className="text-slate-400 text-sm">소수점 첫째 자리까지 맞춰보세요!</p>
+                                    </div>
+
+                                    <div className="w-full py-20 px-4 bg-slate-50 rounded-3xl border-2 border-dashed border-slate-200 relative flex items-center justify-start overflow-hidden">
+                                        <div className="h-6 bg-indigo-600 rounded-full shadow-lg relative flex-shrink-0 z-10 transition-all duration-300"
+                                            style={{ width: `${targetLengthCm * pixelsPerCm}px` }}>
+                                            <div className="absolute inset-0 bg-gradient-to-b from-white/20 to-transparent rounded-full"></div>
+                                        </div>
+                                    </div>
+
+                                    <div className="max-w-2xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-6">
+                                        <div className="space-y-2">
+                                            <label className="flex items-center gap-2 text-sm font-bold text-slate-600"><LucideIcon name="user" size={16} className="text-indigo-500"/> 학생 예상</label>
+                                            <div className="relative"><input type="number" step="0.1" value={studentGuess} onChange={(e) => setStudentGuess(e.target.value)} className="w-full text-3xl font-black text-center py-5 bg-white border-2 border-slate-200 rounded-2xl focus:border-indigo-500 outline-none" placeholder="0.0" /><span className="absolute right-4 top-1/2 -translate-y-1/2 font-bold text-slate-300 text-xl">cm</span></div>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <label className="flex items-center gap-2 text-sm font-bold text-slate-600"><LucideIcon name="book-open" size={16} className="text-pink-500"/> 선생님 예상</label>
+                                            <div className="relative"><input type="number" step="0.1" value={teacherGuess} onChange={(e) => setTeacherGuess(e.target.value)} className="w-full text-3xl font-black text-center py-5 bg-white border-2 border-slate-200 rounded-2xl focus:border-pink-500 outline-none" placeholder="0.0" /><span className="absolute right-4 top-1/2 -translate-y-1/2 font-bold text-slate-300 text-xl">cm</span></div>
+                                        </div>
+                                        <button onClick={checkRoundGuess} disabled={!studentGuess || !teacherGuess} className="md:col-span-2 py-5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white font-bold rounded-2xl text-xl flex items-center justify-center gap-2 shadow-xl">결과 확인 <LucideIcon name="chevron-right" /></button>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* 3단계: 라운드 결과 */}
+                            {gameState === 'round_result' && roundResult && (
+                                <div className="max-w-4xl mx-auto space-y-8 animate-in zoom-in-95 duration-300 text-center">
+                                    <h2 className="text-2xl font-black text-slate-800">ROUND {currentRound} RESULT</h2>
+                                    <div className="inline-block bg-yellow-400 text-slate-900 px-8 py-3 rounded-2xl font-black text-3xl shadow-lg border-4 border-white">실제 정답: {roundResult.actual} cm</div>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div className={`p-8 rounded-3xl border-4 ${roundResult.student.diff < roundResult.teacher.diff ? 'bg-indigo-50 border-indigo-500 scale-105' : 'bg-white border-slate-100 opacity-80'}`}>
+                                            <div className="font-black text-indigo-400 text-sm mb-1 uppercase">학생 팀</div>
+                                            <div className="text-4xl font-black">{roundResult.student.guess}cm</div>
+                                            <div className="text-sm font-bold mt-2">오차: {roundResult.student.diff.toFixed(2)}cm</div>
+                                        </div>
+                                        <div className={`p-8 rounded-3xl border-4 ${roundResult.teacher.diff < roundResult.student.diff ? 'bg-pink-50 border-pink-500 scale-105' : 'bg-white border-slate-100 opacity-80'}`}>
+                                            <div className="font-black text-pink-400 text-sm mb-1 uppercase">선생님</div>
+                                            <div className="text-4xl font-black">{roundResult.teacher.guess}cm</div>
+                                            <div className="text-sm font-bold mt-2">오차: {roundResult.teacher.diff.toFixed(2)}cm</div>
+                                        </div>
+                                    </div>
+                                    <button onClick={nextAction} className="w-full py-5 bg-slate-800 hover:bg-slate-900 text-white font-black rounded-2xl flex items-center justify-center gap-2 text-lg">
+                                        {currentRound < MAX_ROUNDS ? "다음 라운드 도전!" : "최종 결과 발표"} <LucideIcon name="chevron-right" />
+                                    </button>
+                                </div>
+                            )}
+
+                            {/* 4단계: 최종 결과 (보정 설정으로 돌아가기 기능 포함!) */}
+                            {gameState === 'final_result' && (
+                                <div className="max-w-4xl mx-auto space-y-8 animate-in slide-in-from-bottom-8 duration-700 text-center">
+                                    <LucideIcon name="trophy" size={64} className="mx-auto text-yellow-500" />
+                                    <h2 className="text-5xl font-black text-slate-800 tracking-tighter">FINAL SCORE</h2>
+                                    <div className="text-4xl font-black">
+                                        {totals.student < totals.teacher ? <span className="text-indigo-600">학생 팀 승리! 🎉</span> : totals.teacher < totals.student ? <span className="text-pink-600">선생님 승리! 👑</span> : "무승부! 🤝"}
+                                    </div>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                        <div className="bg-indigo-600 text-white p-8 rounded-3xl">
+                                            <div className="text-xs font-bold opacity-70 mb-2 uppercase">학생 팀 최종 오차</div>
+                                            <div className="text-5xl font-black">{totals.student.toFixed(2)} cm</div>
+                                        </div>
+                                        <div className="bg-pink-600 text-white p-8 rounded-3xl">
+                                            <div className="text-xs font-bold opacity-70 mb-2 uppercase">선생님 최종 오차</div>
+                                            <div className="text-5xl font-black">{totals.teacher.toFixed(2)} cm</div>
+                                        </div>
+                                    </div>
+
+                                    <div className="flex flex-col sm:flex-row gap-4">
+                                        <button onClick={startNewGame} className="flex-1 py-5 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-2xl shadow-xl flex items-center justify-center gap-2"><LucideIcon name="refresh-cw" /> 새로운 대결 시작</button>
+                                        
+                                        {/* [다시 보정 설정으로 돌아가는 버튼 작동!] */}
+                                        <button onClick={() => setGameState('calibrate')} className="py-5 px-8 bg-white hover:bg-slate-50 text-slate-500 font-bold border-2 border-slate-200 rounded-2xl transition-colors">보정/범위 설정 변경</button>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                        <div className="bg-slate-50 p-4 text-center border-t text-[10px] text-slate-400 font-black tracking-widest uppercase">
+                            Accuracy Tracking System v2.1
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
